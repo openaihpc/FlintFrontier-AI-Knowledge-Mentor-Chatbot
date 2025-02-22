@@ -1,0 +1,880 @@
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ROCE 以太网交换机网络配置实践 
+ 
+ 
+ 
+                                          
+                                          
+目 录 
+1 原理描述 ...................................................................................................................................... 1 
+1.1 基本概念 ................................................................................................................................... 1 
+1.2 应用场景 ................................................................................................................................... 2 
+2 方案描述 ...................................................................................................................................... 4 
+2.1 AI 大模型训练网络场景 ......................................................................................................... 4 
+2.2 组网方案 ................................................................................................................................... 4 
+2.2.1 组网规划 ............................................................................................................................... 4 
+2.2.2 二层组网方案 ....................................................................................................................... 5 
+2.2.3 三层组网方案 ....................................................................................................................... 7 
+3 典型场景配置 .............................................................................................................................. 8 
+3.1 组网架构图 ............................................................................................................................... 8 
+3.2 配置规划 ................................................................................................................................... 8 
+3.3 配置过程 ................................................................................................................................. 10 
+3.3.1 配置SPINE 交换机 ............................................................................................................ 10 
+3.3.2 配置LEAF 交换机 ............................................................................................................. 12 
+3.3.3 配置交换机AR 功能 ......................................................................................................... 16 
+3.3.4 配置网卡AR/RTT-CC 功能 .............................................................................................. 19 
+3.3.5 配置建议及注意事项 ......................................................................................................... 19 
+3.4 故障排查 ................................................................................................................................. 20 
+4 光模块和光纤配置 .................................................................................................................... 21 
+4.1 光模块与光纤配置 ................................................................................................................. 21 
+4.2 推荐网络部件互联方式 ......................................................................................................... 21 
+5 附录 ............................................................................................................................................ 23 
+6 术语&缩略语 ............................................................................................................................. 27 
+ 
+                                          
+1 原理描述 
+1.1 
+基本概念 
+随着以ChatGPT 为代表的生成式人工智能技术崛起，人工智能（AI）进入大模型时代。
+大模型参数量非常之大，而且在快速迭代，已经从千亿发展到十万亿级别。为了缩短训练时
+间，通常采用分布式训练构架，把模型和数据切分到成千上万块GPU/AI 加速器上，采用多
+机多卡的方式将训练时长缩短到数月或数周。所以，大模型训练需要性能强大的算力集群，
+需要万卡甚至十万卡的规模。但是，大集群不等于大算力，随着算力集群的扩大，算力并不
+是线性增长，需要高性能的网络释放AI 算力。 
+AI 大模型训练对高性能网络提出的需求： 
+超大规模 
+无论是数据并行，还是流水线并行或张量并行计算方式，都是通过加大
+GPU 集群规模加速AI 大模型训练。面对超过数万亿的模型参数量，GPU
+集群规模也从千卡发展到万卡级别，需要更大规模的组网构架支持 
+超高性能 
+大模型训练是一种带宽敏感的计算业务，计算-通信周期性迭代，模型训练
+每个迭代完成后得到的模型参数都需要在GPU 节点间同步一次，当前GPU
+服务器间最大通信带宽已经达到3.2T，更大的网络带宽吞吐可以节约GPU
+节点同步时间，缩减训练完成时间 
+超高可靠 
+大模型一次训练往往需要几百甚至上千小时才能输出最终的可用模型，中
+间出现任何故障将导致训练中断，需要花费相当长的时间重新分配资源和
+重启任务，并且会丢失未存档的训练进度。网络故障影响的范围大，同时网
+络性能波动导致算力利用率低，所以大模型训练需要超高稳定的网络支撑 
+                                          
+易运维 
+传统数据中心业务对网络质量和故障率的敏感性不高，通过容灾备份机制
+可以满足网络故障风险要求。但AI 大规模分布式训练需要千卡甚至万卡协
+同完成训练工作，为了保证整个训练稳定运行，网络必须长时间稳定运行，
+故障影响时间要降低到亚毫秒级。大模型训练网络的设备部署配置、可视
+化监控工作量大，故障预测及排障手段复杂，对网络运维部署和故障定位
+能力提出更高的要求 
+传统RoCE 无损网络解决方案主要包括基于流的ECMP（Equal Cost Multi-Path）负载分
+担技术和端侧网卡的DCQCN 拥塞控制算法。在少流、大流、并行突发集中的AI 大模型训
+练流量下，ECMP 基于流的五元组静态HASH 机制，会造成成员链路上流量不均衡，部分
+链路拥塞，链路使用率低。DCQCN 技术实现简单，但是应用在AI 大模型训练网络存在大
+规模配置工作量较大、不同流量模型下交换机的ECN 水线配置调优过程复杂和ECN 标记
+报文反馈周期比较长无法快速缓解网络拥塞等问题。 
+传统RoCE 方案已经无法满足生成式AI 网络对高性能网络的需求，因此我们推出ROCE 
+AI Fabric 提供超大规模、超高性能、超高可靠、易运维的端到端解决方案。 
+1.2 
+应用场景 
+ROCE AI Fabric 解决方案采用AR（Adaptive Routing）转发功能解决AI 大模型训练网
+络中流数量少引起的ECMP 静态负载不均问题，RoCE 流量在网络内多路径转发时，根据链
+路拥塞情况动态选择负载最小的链路作为转发路径，保证网络内各个链路高度负载均衡。
+ROCE 以太网交换机-SC8670EL-128QH 整机支持单向51.2T 交换容量，支持目前业界单盒
+最高密度的128 个QSFP112 400G 端口，支持高带宽转发速率的同时支持大规模的RoCE 组
+网方案。 
+                                          
+ 
+图1-1 AR 转发逻辑示意图 
+由于AR 是逐包转发，可能会导致接收端报文乱序，需要依靠端侧智能网卡解决乱序
+问题。 
+ 
+图1-2 AR 端到端解决方案示意图 
+ 
+                                          
+2 方案描述 
+2.1 
+AI 大模型训练网络场景 
+AI 大模型训练端到端网络示意图如下所示： 
+ 
+图2-1 AI 大模型训练端到端网络 
+AI 计算网络 
+称为后端网络，为参数传递和同步提供高速通信服务，采用ROCE AI Fabric 解决方案 
+AI 通用网络-存储网络 
+为访问数据集和Checkpoint 提供快速通道 
+AI 通用网络-业务网络 
+用于系统业务调度与管理 
+管理网络 
+为管理GPU 服务器和存储服务器提供连接 
+2.2 
+组网方案 
+本文档主要关注AI 大模型训练网络应用场景中的计算网络部分，组网中的Spine 和
+Leaf 层全部采用以太网交换机SC8670EL-128QH。 
+2.2.1 组网规划 
+ROCE AI Fabric 解决方案是由SC8670EL-128QH 交换机和BlueFiled3 智能网卡组成的
+                                          
+端到端全400G 互联解决方案，1:1 收敛比的多轨网络架构设计，充分满足AI 大模型并行
+训练GPU 集群间无阻塞通信的要求。采用SC8670EL-128QH 交换机最大可组建二层万卡
+（8192 卡）和三层五十万卡（524288 卡）的超大规模GPU 集群。 
+⚫ 
+针对不超过128 卡GPU 的小规模AI 训练集群，只需要部署一台SC8670EL-128QH
+交换机，配置传统RoCE 功能，不需要开启AR，具体配置过程参考5 附录； 
+⚫ 
+超过128 卡的GPU 集群根据集群规模选择不同的Spine-Leaf 组网方案，可以根据
+GPU 卡的总数量配置对应数量的Spine 和Leaf 交换机，但是要保证Leaf 交换机上
+下行带宽1:1 收敛； 
+⚫ 
+多轨组网构架可以减少同轨道内所有GPU 卡通信时延，单机故障影响面小；但涉
+及跨机柜的GPU 服务器长距互联，增加施工难度； 
+2.2.2 二层组网方案 
+1. 256-512 卡GPU 集群组网 
+6 台（4 台）SC8670EL-128QH 交换机组成Spine-Leaf 两层无阻塞网络，最大可支持
+32 个计算节点256 卡GPU，每台Leaf 支持2 个轨道一跳互联减少轨道内转发时延，Leaf
+和Spine 之间支持多链路AR 负载均衡和冗余备份。 
+ 
+图2-2 256 卡GPU 集群 
+可通过横向扩展2 倍的SC8670EL-128QH 交换机共12 台交换机最大支持64 个计算节
+点512 卡GPU 8 轨道互联，每台Leaf 交换机只接入同轨的64 张GPU 卡。跨轨转发需要
+经过Spine 层。
+                                          
+ 
+图2-3 512 卡GPU 集群 
+2. 1K-8K 卡GPU 集群组网 
+1K GPU 集群划分成2 个SU，如采用4 网卡的GPU 服务器，每个SU 需要4 台Leaf
+交换机提供共256 个下行400G 端口，Spine 共需要4 台交换机。 
+ 
+图2-4 1K 卡GPU 集群（4 网卡配置） 
+如采用8 网卡的GPU 服务器，每个SU 需要8 台Leaf 交换机提供共512 个下行400G
+端口，Spine 需要扩展到8 台交换机。 
+ 
+                                          
+图2-5 1K 卡GPU 集群（8 网卡配置） 
+最大通过横向扩展到16 个SU，二层Spine-Leaf 组网构架即可支持8K 的GPU 规模，
+共需要192 台SC8670EL-128QH 交换机。 
+ 
+图2-6 8K 卡GPU 集群 
+2.2.3 三层组网方案 
+ROCE 交换机三层组网最大可支持512K 个GPU，64K 个计算节点。Leaf 层和Spine
+层同轨通信，承载大部分的节点间通信流量，SuperSpine 层跨轨通信，满足任意GPU 之间
+的通信需求，可根据实际流量需要提供收敛连接。 
+以10 万GPU 卡（128K）连接为例，划分为4 个POD，每个POD 包含64 个SU，每
+个SU 包含512 张GPU 卡，共支持4*64*512=128K。 
+ 
+图2-7 十万卡GPU 集群 
+ 
+每个SU 有8 个Leaf 交换机，64 个SU 是有512 个Spine 交换机，4 个POD 共计2048 台Spine
+交换机。这也就是说有2048 台Core 交换机。 
+                                          
+3 典型场景配置 
+3.1 
+组网架构图 
+ 
+图3-1 256 卡GPU 集群 
+以256 卡GPU 二层组网为例，Leaf1-Leaf4 作为Leaf 层进行同轨通信，承载大部分的
+节点间通信流量。Spine1-Spine2 作为Spine 层进行跨轨通信。 
+交换机和网卡配置AR 功能，通过逐包分担的方式实现负载均衡。网卡配置RTT-CC
+拥塞控制功能，简化RoCE 配置流程。 
+3.2 
+配置规划 
+规划说明： 
+⚫ 
+Spine 层配置2 台SC8670EL-128QH 交换机，Leaf 层配置4 台SC8670EL-128QH
+交换机。Spine 交换机128 个400G 端口平均分成4 组对接4 台Leaf 交换机，Leaf
+交换机1-32 号端口对接Spine1 交换机，33-64 号端口对接Spine2 交换机，形成
+Spine-Leaf 的1:1 流量收敛比； 
+⚫ 
+每台Leaf 交换机接入每台GPU 服务器的2 个网卡。Leaf1 交换机接入32 台GPU
+服务器的1 号和2 号网卡，65-96 号端口接入每台GPU 服务器的1 号网卡，97-
+                                          
+128 号端口接入每台GPU 服务器的2 号网卡，依次类推Leaf4 交换机接入32 台
+GPU 服务器的7 号和8 号网卡； 
+⚫ 
+Spine 和Leaf 交换机互联端口配置三层路由口，建立BGP 邻居形成ECMP 负载分
+担链路；Leaf 交换机接入所有GPU 服务器同号网卡的32 个端口配置同一个
+VLAN 二层转发，并配置VLAN 三层接口作为GPU 服务器的网关。 
+规划总结： 
+⚫ 
+GPU 服务器8 块GPU 和8 块网卡一一绑定，所有同号网卡接入同一台Leaf 交换
+机，在Leaf 层形成8 个集合通信轨道，32 台GPU 服务器的同号GPU 在Leaf 交
+换机上一跳转发减少同轨通信时延，跨轨通信流量绕行Spine 层交换机； 
+⚫ 
+Spine 和Leaf 交换机、服务器上的智能网卡都需要开启AR 功能，RoCE 报文在网
+络内采用AR 逐包转发模式，充分提高链路带宽利用率。 
+IP 地址规划如下表，Spine 和Leaf 交换机互联采用三层路由口，Leaf 交换机接入GPU
+服务器采用L3 VLAN 接口，同轨GPU 服务器通信走二层转发，跨轨通信走三层转发。 
+设备 
+端口 
+IP 地址 
+设备 
+端口 
+IP 地址 
+Leaf1 
+Ethernet1 
+10.1.1.1/31 
+Spine1 
+Ethernet1 
+10.1.1.0/31 
+… 
+… 
+Ethernet2 
+10.1.1.2/31 
+Ethernet32 
+10.1.1.63/31 
+… 
+… 
+Ethernet33 
+10.1.2.1/31 
+Ethernet32 
+10.1.1.62/31 
+… 
+… 
+Ethernet33 
+10.1.1.64/31 
+Ethernet64 
+10.1.2.63/31 
+Ethernet34 
+10.1.1.66/31 
+Ethernet65-96 
+Vlan100 192.168.1.1/26 
+… 
+… 
+Ethernet97-128 
+Vlan101 192.168.1.65/26 
+Ethernet64 
+10.1.1.126/31 
+Leaf2 
+Ethernet1 
+10.1.1.65/31 
+Ethernet65 
+10.1.1.128/31 
+… 
+… 
+Ethernet66 
+10.1.1.130/31 
+Ethernet32 
+10.1.1.127/31 
+… 
+… 
+Ethernet33 
+10.1.2.65/31 
+Ethernet96 
+10.1.1.190/31 
+… 
+… 
+Ethernet97 
+10.1.1.192/31 
+Ethernet64 
+10.1.2.127/31 
+Ethernet98 
+10.1.1.194/31 
+Ethernet65-96 
+Vlan100 192.168.1.129/26 
+… 
+… 
+Ethernet97-128 
+Vlan101 192.168.1.193/26 
+Ethernet128 
+10.1.1.254/31 
+Leaf3 
+Ethernet1 
+10.1.1.129/31 
+Spine2 
+Ethernet1 
+10.1.2.0/31 
+… 
+… 
+Ethernet2 
+10.1.2.2/31 
+Ethernet32 
+10.1.1.191/31 
+… 
+… 
+Ethernet33 
+10.1.2.129/31 
+Ethernet32 
+10.1.2.62/31 
+… 
+… 
+Ethernet33 
+10.1.2.64/31 
+Ethernet64 
+10.1.2.191/31 
+Ethernet34 
+10.1.2.66/31 
+Ethernet65-96 
+Vlan100 192.168.2.1/26 
+… 
+… 
+                                          
+Ethernet97-128 
+Vlan101 192.168.2.65/26 
+Ethernet64 
+10.1.2.126/31 
+Leaf4 
+Ethernet1 
+10.1.1.193/31 
+Ethernet65 
+10.1.2.128/31 
+… 
+… 
+Ethernet66 
+10.1.2.130/31 
+Ethernet32 
+10.1.1.255/31 
+… 
+… 
+Ethernet33 
+10.1.2.193/31 
+Ethernet96 
+10.1.2.190/31 
+… 
+… 
+Ethernet97 
+10.1.2.192/31 
+Ethernet64 
+10.1.2.255/31 
+Ethernet98 
+10.1.2.194/31 
+Ethernet65-96 
+Vlan100 192.168.2.129/26 
+… 
+… 
+Ethernet97-128 
+Vlan101 192.168.2.193/26 
+Ethernet128 
+10.1.2.254/31 
+ 
+3.3 
+配置过程 
+3.3.1 配置SPINE 交换机 
+1. 配置步骤 
+以Spine1 配置为例： 
+ 
+sonic# configure terminal 
+进入全局配置模式 
+sonic(config)# interface ethernet 1 
+进入端口配置试图 
+sonic(config-if-ethernet1)# no isolate 
+切换端口模式为L2 
+sonic(config-if-ethernet1)# no switchport 
+切换端口模式为L3 
+sonic(config-if-ethernet1)#ip address 10.1.1.0/31 
+配置接口ip 地址 
+sonic(config-if-ethernet1)# exit 
+退出接口配置模式 
+sonic(config)# interface ethernet 2 
+进入端口配置试图 
+sonic(config-if-ethernet1)# no isolate 
+切换端口模式为L2 
+sonic(config-if-ethernet1)# no switchport 
+切换端口模式为L3 
+sonic(config-if-ethernet1)#ip address 10.1.1.2/31 
+配置接口ip 地址 
+                                          
+ 
+sonic(config-if-ethernet1)# exit 
+退出接口配置模式 
+…. 
+其它接口地址配置同上，按照地址规划进
+行配置 
+sonic(config)# do show ip interface 
+查看接口ip 地址信息 
+sonic(config)# vtysh 
+进入frr 模式 
+sonic(config)# router bgp 65100 
+启动BGP，指定本地AS 编号 
+sonic(config-router)# bgp router-id 1.1.1.1 
+设置bgp router id，bgp router id 设置全网
+唯一即可，id 以ip 地址的形式配置，设备
+上不需要此ip 地址真实存在。 
+sonic(config-router)# no bgp ebgp-requires-policy 
+删除默认的EBGP 策略 
+sonic(config-router)# neighbor 10.1.1.1 remote-as 
+64100 
+新建EBGP 邻居，并指定对应的AS 号 
+sonic(config-router)# neighbor 10.1.1.3 remote-as 
+64101 
+新建EBGP 邻居，并指定对应的AS 号 
+… 
+其他EBGP 邻居建立同上，使用直连路由
+口建立EBGP 邻居关系。对于二级组网，
+Spine 层AS 号相同，leaf 层使用不同的
+AS 号。实际部署的时候，AS 号客户会统
+一规划。 
+sonic(config-router)# exit 
+退出对应的视图 
+sonic(config)# exit 
+退出对应的视图 
+sonic(config-router)# do show bgp summary 
+查看BGP 信息摘要信息 
+sonic# exit 
+退出frr 模式 
+                                          
+SPINE1 需要和下连的Leaf1、Leaf2、Leaf3、Leaf4 交换机使用直连路由端口建立128
+个EBGP 邻居关系（32*4）。对于二级组网，Spine 层AS 号相同，leaf 层使用不同的AS
+号。实际部署的时候，AS 号由客户统一规划。 
+ 
+2. 配置校验 
+sonic(config-router)# do show bgp summary  
+IPv4 Unicast Summary (VRF default): 
+BGP router identifier 1.1.1.1, local AS number 65100 vrf-id 0 
+BGP table version 0 
+RIB entries 0, using 0 bytes of memory 
+Peers 1, using 723 KiB of memory 
+ 
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down 
+State/PfxRcd   PfxSnt Desc 
+10.1.1.1       4      64100         8         8        0    0    0 00:03:21 
+NoNeg               0 N/A 
+….. 
+Total number of neighbors 128 
+sonic(config-router)# 
+ 
+3.3.2 配置LEAF 交换机 
+1. 配置过程 
+以Leaf1 配置为例： 
+sonic# configure terminal 
+进入全局配置模式 
+sonic(config)# interface ethernet 1 
+进入端口配置试图 
+sonic(config-if-ethernet1)# no isolate 
+切换端口模式为L2 
+                                          
+sonic(config-if-ethernet1)# no switchport 
+切换端口模式为L3 
+sonic(config-if-ethernet1)#ip address 10.1.1.1/31 
+配置接口ip 地址 
+sonic(config-if-ethernet1)# exit 
+退出接口配置模式 
+sonic(config)# interface ethernet 2 
+进入端口配置试图 
+sonic(config-if-ethernet2)# no isolate 
+切换端口模式为L2 
+sonic(config-if-ethernet2)# no switchport 
+切换端口模式为L3 
+sonic(config-if-ethernet2)#ip address 10.1.1.3/31 
+配置接口ip 地址 
+sonic(config-if-ethernet2)# exit 
+退出接口配置模式 
+… 
+其它接口地址配置同上，按照地址规划进
+行配置 
+sonic(config)# vlan 100-101 
+创建vlan100,101 
+sonic(config-vlan100-101)# exit 
+退出vlan 配置视图 
+sonic(config)# interface ethernet 65-96 
+如下配置下连服务器端口加入vlan100 
+sonic(config-if-ethernet65-96)# no isolate 
+切换端口模式为L2 
+sonic(config-if-ethernet65-96)# switchport mode access 
+端口配置为access 模式 
+sonic(config-if-ethernet65-96)# switchport access vlan 
+100 
+端口以access 的方式加入vlan100 
+sonic(config-if-ethernet65-96)# exit 
+退出接口视图 
+sonic(config)# interface ethernet 97-128 
+如下配置下连服务器端口加入vlan101 
+sonic(config-if-ethernet97-128)# no isolate 
+切换端口模式为L2 
+sonic(config-if-ethernet97-128)# switchport mode 
+access 
+端口配置为access 模式 
+                                          
+sonic(config-if-ethernet97-128)# switchport access vlan 
+101 
+端口以access 的方式加入vlan101 
+sonic(config-if-ethernet97-128)# exit 
+退出接口视图 
+sonic (config)# interface vlan 100 
+创建vlanif100 
+sonic (config-if-vlan100)# ip address 192.168.1.1/26 
+配置ip 地址 
+sonic (config-if-vlan100)# exit 
+退出vlanif 视图模式 
+sonic (config)# interface vlan 101 
+创建vlanif101 
+sonic (config-if-vlan101)# ip address 192.168.1.65/26 
+配置ip 地址 
+sonic (config-if-vlan101)# exit 
+退出vlanif 视图模式 
+sonic(config)# do show ip interface 
+查看接口ip 地址信息 
+sonic(config)# vtysh 
+进入frr 模式 
+sonic(config)# router bgp 64100 
+启动BGP，指定本地AS 编号 
+sonic(config-router)# bgp router-id 2.2.2.1 
+设置bgp router id，bgp router id 设置全网
+唯一即可，id 以ip 地址的形式配置，设备
+上不需要此ip 地址真实存在。4 台leaf 实
+验场景可以分别设置2.2.2.1 2.2.2.2 2.2.2.3 
+2.2.2.4 
+sonic(config-router)# no bgp ebgp-requires-policy 
+删除默认的EBGP 策略 
+sonic(config-router)# neighbor 10.1.1.0 remote-as 
+65100 
+新建EBGP 邻居，并指定对应的AS 号 
+sonic(config-router)# neighbor 10.1.1.2 remote-as 
+65100 
+新建EBGP 邻居，并指定对应的AS 号 
+… 
+其他EBGP 邻居建立同上，使用直连路由
+                                          
+Leaf1 交换机使用直连路由端口和Spine1 建立32 个EBGP 邻居关系，和Spine2 建立32
+个EBGP 邻居关系。对于二级组网，Spine 层AS 号相同，leaf 层使用不同的AS 号。实际
+部署的时候，AS 号由客户统一规划。 
+ 
+2. 配置校验 
+sonic(config-router)# do show bgp summary  
+IPv4 Unicast Summary (VRF default): 
+BGP router identifier 2.2.2.1, local AS number 64100 vrf-id 0 
+BGP table version 0 
+RIB entries 0, using 0 bytes of memory 
+Peers 1, using 723 KiB of memory 
+ 
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down 
+State/PfxRcd   PfxSnt Desc 
+10.1.1.0        4      65100         8         8        0    0    0 00:03:21 
+NoNeg               0 N/A 
+…. 
+Total number of neighbors 64 
+sonic(config-router)# 
+ 
+口建立EBGP 邻居关系。对于二级组网，
+Spine 层AS 号相同，leaf 层使用不同的
+AS 号。实际部署的时候，AS 号客户会统
+一规划。 
+sonic(config-router)# exit 
+退出对应的视图 
+sonic(config)# exit 
+退出对应的视图 
+sonic(config-router)# do show bgp summary 
+查看BGP 信息摘要信息 
+sonic# exit 
+退出frr 模式 
+                                          
+3.3.3 配置交换机AR 功能 
+1. 配置举例 
+2. 配置校验 
+sonic(config)# ar enable 
+sonic(config)# end 
+sonic # write 
+Warning: This command will copy the running-configuration to startup-
+configuration. 
+Do you wish to proceed anyway? (y/n)  [n] y 
+sonic # 
+sonic # reboot 
+This command will reboot the system. (y/n)?  [n] y 
+Make sure your account has RW permission to current device. 
+Otherwise sudo requests will be rejected. 
+ 
+[sudo] password for admin: 
+sonic# configure terminal 
+进入全局配置模式 
+sonic(config)# ar enable 
+开启AR 功能 
+sonic(config)# ar disable 
+开启AR 功能 
+sonic(config)# end 
+退回到特权模式 
+sonic# write 
+保存AR 配置 
+sonic# reboot 
+重启交换机使能AR 功能 
+sonic# show ar config 
+查看AR 的开启状态 
+sonic# show doroce status 
+查看RoCE buffer 的状态 
+sonic# show interface counters 
+查看ECMP 成员链路报文负载均衡统计 
+                                          
+……… 
+sonic# show ar config 
+Global: 
+DoAI state:  enabled 
+AR state:    enabled 
+AR Port 
+----------- 
+Ethernet1 
+Ethernet2 
+Ethernet3 
+…… 
+sonic# show doroce status 
+RoCE configurations 
+Type      Mode          State    Priority Group 
+--------  ------------  -------  ---------------- 
+lossless  single-ipool  enabled  3 
+Congestion Control(ECN) 
+Color    State    Minimum    Maximum    Probability 
+-------  -------  ---------  ---------  ------------- 
+red      True     153600     1536000    100 
+yellow   True     153600     1536000    100 
+green    True     153600     1536000    100 
+Pools configurations 
+Pool                   Type     Mode     Size       xOff 
+---------------------  -------  -------  ---------  ------ 
+egress_lossless_pool   egress   dynamic  158229504  N\A 
+egress_lossy_pool      egress   dynamic  96599040   N\A 
+ingress_lossless_pool  ingress  dynamic  96599040   0 
+PFC configurations 
+State    Lossless TC 
+                                          
+-------  ------------- 
+enabled  3 
+QoS classifications 
+DSCP                            TC 
+------------------------------  ---- 
+0, 1, 2, 3, 4, 5, 6, 7          0 
+8, 9, 10, 11, 12, 13, 14, 15    1 
+16, 17, 18, 19, 20, 21, 22, 23  2 
+24, 25, 26, 27, 28, 29, 30, 31  3 
+32, 33, 34, 35, 36, 37, 38, 39  4 
+40, 41, 42, 43, 44, 45, 46, 47  5 
+48, 49, 50, 51, 52, 53, 54, 55  6 
+56, 57, 58, 59, 60, 61, 62, 63  7 
+Scheduler configurations 
+TC           Queue    ETS 
+-----------  -------  -------- 
+0 1 2 4 5 7  0        DWRR 50% 
+3            3        DWRR 50% 
+6            6        STRICT 
+sonic # 
+流量抓包负载均衡现象如下：如leaf1 开启AR 之后针对RoCE 流量1-64 端口收发双向端
+口统计计数现象如下： 
+sonic# show interface counters 
+      IFACE    STATE       RX_OK    RX_BPS    RX_UTIL    RX_ERR    RX_DRP    RX_OVR       TX_OK    TX_BPS    TX_UTIL    TX_ERR    TX_DRP    TX_OVR 
+-----------  -------  ----------  --------  ---------  --------  --------  --------  ----------  --------  ---------  --------  --------  -------- 
+  Ethernet1        U  11,785,536       N/A        N/A         0         4         0  11,883,268       N/A        N/A         0         0         0 
+  Ethernet2        U  11,783,373       N/A        N/A         0         4         0  11,894,875       N/A        N/A         0         0         0 
+  Ethernet3        U  11,785,536       N/A        N/A         0         4         0  11,883,268       N/A        N/A         0         0         0 
+  Ethernet4        U  11,783,373       N/A        N/A         0         4         0  11,894,875       N/A        N/A         0         0         0 
+。。。 
+                                          
+  Ethernet64        U  11,736,090       N/A        N/A         0         4         0  11,803,265       N/A        N/A         0         0         0 
+3.3.4 配置网卡AR/RTT-CC 功能 
+在服务器配置控制台，执行如下命令开启智能网卡的AR 和RTT-CC 功能： 
+#开启网卡的AR 功能 
+mlxreg -d $port_ib_name -y --reg_name ROCE_ACCL --set 
+"roce_tx_window_en=0x1,roce_slow_restart_en=0x0,roce_slow_restart_idle_en=0x0
+,min_ack_timeout_limit_disabled=0x0,adaptive_routing_forced_en=0x1" 
+#开启网卡的RTT-CC 功能 
+# disable DCQCN 
+mlxreg -d $port_ib_name -y --set "cmd_type=2" --reg_name PPCC --indexes 
+"local_port=1,pnat=0,lp_msb=0,algo_slot=15,algo_param_index=0" 
+# enable RTTCC 
+mlxreg -d $port_ib_name -y --set "cmd_type=1" --reg_name PPCC --indexes 
+"local_port=1,pnat=0,lp_msb=0,algo_slot=0,algo_param_index=0" 
+mlxreg -d $port_ib_name -y --set "cmd_type=8,value=30000" --reg_name PPCC --
+indexes "local_port=1,pnat=0,lp_msb=0,algo_slot=0,algo_param_index=7" 
+mlxreg -d $port_ib_name -y --set "cmd_type=8,value=524288" --reg_name PPCC --
+indexes "local_port=1,pnat=0,lp_msb=0,algo_slot=0,algo_param_index=9" 
+注意： 
+⚫ 
+$port_ib_name 需用实际环境的网卡名称替换。 
+⚫ 
+AR 转发功能需要交换机和智能网卡配合才能生效。 
+⚫ 
+服务器重启后网卡的参数需要重新配置。 
+3.3.5 配置建议及注意事项 
+⚫ 
+配置ar enable 或者ar disable 后，需要执行write,然后reboot，配置的ar 
+enable 或者ar disable 功能才能生效。 
+⚫ 
+执行ar enable，会加载ar 功能对应的默认qos 的配置模板（ar disable 情况下
+的qos 配置会被清除） 
+                                          
+⚫ 
+ar enable、write、reboot 后，qos 相关的配置已经固定（开启全部端口队列3
+的PFC 和ECN），不能再配置和修改qos 相关的配置。 
+⚫ 
+使能AR 之后，默认只有队列3 使能PFC。 
+⚫ 
+支持100G、200G、400G 三种速率下的AR 转发功能。 
+3.4 
+故障排查 
+AR 功能失败的常见原因： 
+⚫ 
+AR 功能开启后，未执行write、reboot 操作。 
+⚫ 
+AR 功能开启后，目前只RoCE 流量的rdma_write、rdma_read response 和
+rdma_atomic response 报文的逐包负载分担转发，对其他流量不生效。 
+                                          
+4 光模块和光纤配置 
+4.1 
+光模块与光纤配置 
+ROCE 交换机支持多种可插拔光模块，光模块信息如下表所示。 
+光模块类型 
+接口 
+传输速率 
+传输距离 
+配合光纤 
+400G QSFP112 VR4  
+MPO 
+400Gbps 
+50m 
+多模 MPO12 APC 光纤 3-50m 
+400G QSFP112 DR4 
+MPO 
+400Gbps 
+500m 
+单模 MPO12 APC 光纤 50-500m 
+400G QSFP112 FR4 
+LC 
+400Gbps 
+2km 
+单模 LC 光纤 2km 
+200G QSFP56 SR4 
+MPO 
+200Gbps 
+100m 
+多模 MPO12 UPC 光纤 3-100m 
+100G QSFP28 SR4 
+MPO 
+100Gbps 
+100m 
+多模MPO12 UPC 光纤 3-100m 
+100G QSFP28 CWDM4 
+LC 
+100Gbps 
+2km 
+单模 LC 光纤 2km 
+表4-1 ROCE 交换机配套光模块 
+4.2 
+推荐网络部件互联方式 
+交换机之间和交换机与网卡之间互联方式推荐如下： 
+1. 交换机之间互联 
+ 
+图4-1 交换机互联方式 
+2. 交换机与网卡之间 
+ 
+图4-2 交换机和网卡互联方式 
+3. 交换机一分二对接200G NDR CX7 网卡 
+                                          
+ 
+图4-3 交换机和网卡一分二互联方式 
+                                          
+5 附录 
+本章介绍SC8670EL-128QH 单机开启全部128 个端口RoCE 功能的参考配置过程。 
+ 
+图5-1 单台交换机组网 
+1. 配置步骤 
+DUT# configure terminal 
+进入全局配置模式 
+DUT(config)# vlan 100 
+创建vlan100 
+DUT(config-vlan100)# exit  
+退出vlan 模式 
+DUT(config)# interface ethernet 1-128 
+批量操作端口 
+DUT(config-if-ethernet1-128)# no isolate  
+将下连服务器的端口切换为L2 模式 
+DUT(config-if-ethernet1-128)# switchport mode access 
+端口为access vlan 模式 
+DUT(config-if-ethernet1-128)# switchport access vlan 100 
+端口属于access vlan 100 
+DUT(config-if-ethernet1-128)# exit 
+退出端口视图 
+DUT(config)# interface ethernet 1-128 
+批量操作端口 
+DUT(config-if-ethernet1-128)# no priority-flow-control 
+priority  
+删除端口缺省PFC 配置 
+                                          
+DUT(config-if-ethernet1-128)# priority-flow-control priority 3  端口3 队列开启PFC 
+DUT(config-if-ethernet1-128)# exit 
+退出端口视图 
+DUT(config)# do show interface priority-flow-control priority 
+config 
+查看端口PFC 队列开启情况 
+DUT (config)# qos queue-profile profile1 
+创建ECN 模板 
+DUT (config-qos-queue-profile-profile1)# green min-
+threshold  153600 
+配置绿包最小门限值 
+DUT (config-qos-queue-profile-profile1)# green max-
+threshold  1536000 
+配置绿包最大门限值 
+DUT (config-qos-queue-profile-profile1)# green probability  
+100 
+配置绿包丢弃概率 
+DUT(config-qos-queue-profile-profile1)# red min-threshold 
+153600 
+配置红包最小门限值 
+DUT(config-qos-queue-profile-profile1)# red max-threshold 
+1536000 
+配置红包最大门限值 
+DUT(config-qos-queue-profile-profile1)# red probability 100 
+配置红包丢弃概率 
+DUT(config-qos-queue-profile-profile1)# yellow min-
+threshold 153600 
+配置黄包最小门限值 
+DUT(config-qos-queue-profile-profile1)# yellow max-
+threshold 1536000 
+配置黄包最大门限值 
+DUT(config-qos-queue-profile-profile1)# yellow probability 
+100 
+配置黄包丢弃概率 
+DUT (config-qos-queue-profile-profile1)# ecn 
+开启ECN 
+DUT (config-qos-queue-profile-profile1)# exit 
+退回全局配置模式 
+                                          
+ 
+2. 配置校验 
+DUT(config-if-ethernet1)# do show interface priority-flow-control priority 
+config 
+Interface          Lossless priorities 
+---------------  --------------------- 
+Ethernet1                            3 
+Ethernet2                            3 
+Ethernet3                            3 
+Ethernet4                            3 
+Ethernet5                            3 
+Ethernet6                            3 
+Ethernet7                            3 
+Ethernet8                            3 
+Ethernet9                            3 
+Ethernet10                           3 
+Ethernet11                           3 
+Ethernet12                           3 
+Ethernet13                           3 
+.... 
+DUT(config)# show interface service-policy queue-profile 
+Profile: profile1 
+Port         Queue 
+---------  ------- 
+Ethernet1        3 
+Ethernet2        3 
+DUT(config)# interface ethernet 1-128 
+批量操作端口 
+DUT(config-if-ethernet1-128)# service-policy queue-profile 
+profile1 queue 3 
+所有端口开启队列3 开启ECN 
+                                          
+…. 
+DUT(config)# 
+ 
+                                          
+6 术语&缩略语 
+AR 
+Adaptive Routing 
+自适应路由 
+ECN 
+Explicit Congestion Notification 
+显式拥塞通知算法 
+ECMP 
+Equal-Cost Multi-path Routing 
+等价多路径路由 
+PFC 
+Priority-Based Flow Control 
+基于优先级的流量控制 
+RoCE 
+RDMA over Converged Ethernet 
+基于融合以太网的RDMA 
+ 
+ 

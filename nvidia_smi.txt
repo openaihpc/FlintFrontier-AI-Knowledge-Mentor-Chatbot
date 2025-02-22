@@ -1,0 +1,27 @@
+Certainly, here is the data table in markdown format based on the image provided:
+
+```markdown
+| GPU Fan Temp Perf | Pwr:Usage/Cap | Memory-Usage | GPU-Util | Compute M. |
+|-------------------|---------------|--------------|----------|------------|
+| 0 N/A 50C P0      | 374W / 400W   | 72.95G1B / 80.00G1B | 98%      | Default    |
+| 1 N/A 48C P0      | 345W / 400W   | 72.95G1B / 80.00G1B | 93%      | Default    |
+| 2 N/A 50C P0      | 298W / 400W   | 72.95G1B / 80.00G1B | 95%      | Default    |
+| 3 N/A 44C P0      | 356W / 400W   | 72.76G1B / 80.00G1B | 94%      | Default    |
+| 4 N/A 65C P0      | 379W / 400W   | 45.51G1B / 80.00G1B | 100%     | Default    |
+| 5 N/A 53C P0      | 366W / 400W   | 56.02G1B / 80.00G1B | 100%     | Default    |
+| 6 N/A 60C P0      | 354W / 400W   | 52.18G1B / 80.00G1B | 100%     | Default    |
+| 7 N/A 56C P0      | 349W / 400W   | 52.20G1B / 80.00G1B | 98%      | Default    |
+```
+
+Additionally, the image contains a section for Load Average, CPU usage, GPU 3 MEM, GPU 3 UTL, and a list of processes with their respective PID, USER, GPU-MEM, %SM, %CPU, %MEM, TIME, and COMMAND. Here is the markdown for that section:
+
+```markdown
+| Load Average | CPU | GPU 3 MEM | GPU 3 UTL |
+|--------------|-----|-----------|-----------|
+| 80.03        | 73.1% | 91.0%    | 88.0%     |
+
+| Processes | PID  | USER | GPU-MEM | %SM | %CPU | %MEM | TIME | COMMAND                                                                                   |
+|-----------|------|------|---------|-----|------|------|------|-------------------------------------------------------------------------------------------|
+| 0         | 19216| test05| 72.87G1B| 94  | 101.6| 4.3  | 22:20:55 | python training_dataset/inference_generated_prompts.py --dataset_name=bigcode_python_fns --model_name=llama3.3_instruct --mo. |
+| 1         | 11109| test05| 72.86G1B| 93  | 100.6| 4.3  | 22:16:52 | python training_dataset/inference_generated_prompts.py --dataset_name=bigcode_python_fns --model_name=llama3.3_instruct --mo. |
+| 2         | 11153| test05| 72.86G1B| 92  | 99.6 | 4.3  | 22:16:52 | python training_dataset/inference_generated_prompts.py --dataset_name=bigcode_python_fns --
